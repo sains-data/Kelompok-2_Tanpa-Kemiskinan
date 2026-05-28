@@ -1,0 +1,109 @@
+{
+  "format-version" : 2,
+  "table-uuid" : "d18de9e8-8540-4c42-8f4a-51e60e46ea6a",
+  "location" : "warehouse/bronze/kiva_mpi_region_locations",
+  "last-sequence-number" : 1,
+  "last-updated-ms" : 1779964242330,
+  "last-column-id" : 9,
+  "current-schema-id" : 0,
+  "schemas" : [ {
+    "type" : "struct",
+    "schema-id" : 0,
+    "fields" : [ {
+      "id" : 1,
+      "name" : "LocationName",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 2,
+      "name" : "ISO",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 3,
+      "name" : "country",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 4,
+      "name" : "region",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 5,
+      "name" : "world_region",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 6,
+      "name" : "MPI",
+      "required" : false,
+      "type" : "double"
+    }, {
+      "id" : 7,
+      "name" : "geo",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 8,
+      "name" : "lat",
+      "required" : false,
+      "type" : "double"
+    }, {
+      "id" : 9,
+      "name" : "lon",
+      "required" : false,
+      "type" : "double"
+    } ]
+  } ],
+  "default-spec-id" : 0,
+  "partition-specs" : [ {
+    "spec-id" : 0,
+    "fields" : [ ]
+  } ],
+  "last-partition-id" : 999,
+  "default-sort-order-id" : 0,
+  "sort-orders" : [ {
+    "order-id" : 0,
+    "fields" : [ ]
+  } ],
+  "properties" : {
+    "owner" : "RAIHANA",
+    "write.parquet.compression-codec" : "zstd"
+  },
+  "current-snapshot-id" : 3674431632827623203,
+  "refs" : {
+    "main" : {
+      "snapshot-id" : 3674431632827623203,
+      "type" : "branch"
+    }
+  },
+  "snapshots" : [ {
+    "sequence-number" : 1,
+    "snapshot-id" : 3674431632827623203,
+    "timestamp-ms" : 1779964242330,
+    "summary" : {
+      "operation" : "append",
+      "spark.app.id" : "local-1779964223390",
+      "added-data-files" : "1",
+      "added-records" : "2772",
+      "added-files-size" : "48317",
+      "changed-partition-count" : "1",
+      "total-records" : "2772",
+      "total-files-size" : "48317",
+      "total-data-files" : "1",
+      "total-delete-files" : "0",
+      "total-position-deletes" : "0",
+      "total-equality-deletes" : "0"
+    },
+    "manifest-list" : "warehouse/bronze/kiva_mpi_region_locations/metadata/snap-3674431632827623203-1-a61bff11-3c64-4744-ba75-7c8fcac2dc6d.avro",
+    "schema-id" : 0
+  } ],
+  "statistics" : [ ],
+  "partition-statistics" : [ ],
+  "snapshot-log" : [ {
+    "timestamp-ms" : 1779964242330,
+    "snapshot-id" : 3674431632827623203
+  } ],
+  "metadata-log" : [ ]
+}
