@@ -1,3 +1,6 @@
+import os
+os.environ['HADOOP_HOME'] = r'C:\hadoop'
+os.environ['PATH'] = r'C:\hadoop\bin;' + os.environ.get('PATH', '')
 # Bronze Layer Apache Iceberg
 from pyspark.sql import SparkSession
 
