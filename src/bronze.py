@@ -11,9 +11,9 @@ def execute_bronze(spark: SparkSession):
     # =========================================
     # Path file CSV mentah
     # =========================================
-    loans_path = "data/raw/kiva_loans.csv"
-    mpi_path = "data/raw/kiva_mpi_region_locations.csv"
-    themes_path = "data/raw/loan_themes_by_region.csv"
+    loans_path = "data/kiva_loans.csv"
+    mpi_path = "data/kiva_mpi_region_locations.csv"
+    themes_path = "data/loan_themes_by_region.csv"
 
     # =========================================
     # Membaca CSV mentah TANPA cleaning
