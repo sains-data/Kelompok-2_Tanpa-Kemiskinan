@@ -54,6 +54,7 @@ python src/silver.py
 # 3. Transformasi ke Model Dimensional
 python src/gold.py
 
+```
 👥 Identitas Tim Pengembang
 Kelompok 2 - Program Studi Sains Data, Institut Teknologi Sumatera (ITERA)
 
