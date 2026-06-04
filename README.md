@@ -28,6 +28,7 @@ Arsitektur data ini dibangun secara spesifik untuk menyuplai mesin kueri (Trino 
 | **5. Kesetaraan Pendanaan (Gender)** | Mengevaluasi proporsi jangkauan dana mikro terhadap kelompok perempuan di area miskin. | **Rasio Kesetaraan Gender:** Persentase total pendanaan untuk peminjam perempuan di zona kemiskinan ekstrem. | `SUM(funded_amount)` berdasarkan `borrower_genders` & kategori MPI. |
 
 ---
+---
 erDiagram
     fact_loans {
         string loan_id PK
@@ -61,6 +62,7 @@ erDiagram
     fact_loans }o--|| dim_region : "memiliki lokasi"
     fact_loans }o--|| dim_sector : "termasuk dalam"
     fact_loans }o--|| dim_partner : "disalurkan oleh"
+---
     
 ## ✨ Fitur Utama Arsitektur
 
