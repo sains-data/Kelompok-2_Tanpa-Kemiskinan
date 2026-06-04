@@ -26,14 +26,13 @@ except FileNotFoundError:
 
 print(f"[PROSES] Membaca metadata dari: {metadata_path}")
 
-# Kueri Agregasi Skala Besar (Simulasi Beban KPI dengan Bypass)
+# Kueri Agregasi Skala Besar (Murni di atas Data Bersih Star Schema)
 query = f"""
     SELECT 
         region_id,
         COUNT(loan_id) as jumlah_transaksi,
-        SUM(TRY_CAST(funded_amount AS DOUBLE)) as total_pendanaan
+        SUM(funded_amount) as total_pendanaan
     FROM iceberg_scan('{metadata_path}')
-    WHERE TRY_CAST(funded_amount AS DOUBLE) IS NOT NULL
     GROUP BY region_id
     ORDER BY total_pendanaan DESC
     LIMIT 10;
