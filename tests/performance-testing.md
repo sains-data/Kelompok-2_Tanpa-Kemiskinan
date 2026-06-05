@@ -19,9 +19,9 @@ ORDER BY total_pendanaan DESC
 LIMIT 10;
 
 ```
-## 3. Hasil Komparasi Engine
+### Hasil Komparasi Mesin Analitik
 
-| Engine Analitik | Tipe Pemrosesan | Status Eksekusi | Waktu Eksekusi (Latensi) | Analisa Singkat |
-| :--- | :--- | :--- | :--- | :--- |
-| **DuckDB** | In-Memory | Selesai | **0.0674 detik** | Performa vektorisasi in-memory sangat cepat, terbantu oleh pembersihan null values di Lapisan Silver. |
-| **Trino** | Distributed JVM | *(Menunggu)* | **[TBD]** | *(Akan diisi setelah konfigurasi server dan eksekusi kueri berhasil).* |
+| Engine Analitik | Arsitektur Pemrosesan | Waktu Eksekusi (Latensi) | Analisis Komparatif |
+| :--- | :--- | :--- | :--- |
+| **DuckDB** | *In-Process / In-Memory* | **0.0674 detik** | **Menang mutlak di skala lokal.** Performa mesin vektorisasi *in-process* mengeksekusi metadata Iceberg secara langsung dari disk/memory lokal tanpa perantara peladen HTTP, menghindari seluruh *overhead* komunikasi jaringan. |
+| **Trino** | *Decoupled Distributed JVM* | **5.87 detik** | **Terjadi *bottleneck* arsitektural.** Memaksa mesin komputasi terdistribusi yang dirancang untuk skala-*petabyte* agar mengeksekusi data berukuran mikro (~4 MB) melalui lapisan jaringan S3 MinIO di dalam lingkungan *single-node* justru mencekik latensi. Waktu dihabiskan untuk *overhead* API (HTTP/REST) dan inisialisasi *split* pekerja (*workers*), bukan untuk komputasi data itu sendiri. |
