@@ -2,6 +2,7 @@ import os
 import sys
 import urllib.request
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import monotonically_increasing_id, col
 
 # 1. OTOMATISASI PATH HADOOP (Standardisasi Windows)
 dummy_hadoop_dir = os.path.join(os.getcwd(), ".hadoop_dummy")
@@ -19,27 +20,26 @@ os.environ["HADOOP_HOME"] = dummy_hadoop_dir
 os.environ["PATH"] += os.pathsep + bin_dir
 sys.path.append(bin_dir)
 
-# Meredam validasi AWS SDK di tingkat sistem operasi
+# 2. MEREDAM VALIDASI AWS SDK DI TINGKAT SISTEM OPERASI
 os.environ["AWS_REGION"] = "us-east-1"
 os.environ["AWS_ACCESS_KEY_ID"] = "admin"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "password"
 
-def populate():
-    print("--- Migrasi Data ke Arsitektur Enterprise (MinIO S3 + PostgreSQL) ---")
+def execute_enterprise_migration():
+    print("--- Eksekusi Star Schema & Migrasi Enterprise S3 ---")
     
     print("[PROSES] Menyiapkan koneksi JVM dan mengunduh Pustaka Iceberg, Postgres, & AWS S3...")
-    spark = (SparkSession.builder.appName("Iceberg_S3_Migration")
+    spark = (SparkSession.builder.appName("Iceberg_S3_Enterprise")
              .master("local[*]")
-             # Menambahkan driver PostgreSQL dan AWS S3 untuk MinIO
              .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0,org.apache.iceberg:iceberg-aws-bundle:1.5.0,org.postgresql:postgresql:42.7.3,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262")
              .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
              
-             # Konfigurasi Catalog LAMA (Sumber: Folder Lokal Windows)
-             .config("spark.sql.catalog.local_hadoop", "org.apache.iceberg.spark.SparkCatalog")
-             .config("spark.sql.catalog.local_hadoop.type", "hadoop")
-             .config("spark.sql.catalog.local_hadoop.warehouse", "warehouse")
+             # Catalog LAMA (Lokal Hadoop) untuk MEMBACA data Silver
+             .config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")
+             .config("spark.sql.catalog.local.type", "hadoop")
+             .config("spark.sql.catalog.local.warehouse", "warehouse")
              
-             # Konfigurasi Catalog BARU (Target: PostgreSQL + MinIO)
+             # Catalog BARU (PostgreSQL + MinIO S3) untuk MENULIS data Gold
              .config("spark.sql.catalog.trino_cat", "org.apache.iceberg.spark.SparkCatalog")
              .config("spark.sql.catalog.trino_cat.type", "jdbc")
              .config("spark.sql.catalog.trino_cat.uri", "jdbc:postgresql://localhost:5432/iceberg_catalog")
@@ -49,8 +49,6 @@ def populate():
              .config("spark.sql.catalog.trino_cat.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
              .config("spark.sql.catalog.trino_cat.s3.endpoint", "http://localhost:9000")
              .config("spark.sql.catalog.trino_cat.s3.path-style-access", "true")
-             
-             # AWS S3 Hadoop FileSystem Configs untuk backend
              .config("spark.hadoop.fs.s3a.endpoint", "http://localhost:9000")
              .config("spark.sql.catalog.trino_cat.s3.region", "us-east-1")
              .config("spark.hadoop.fs.s3a.endpoint.region", "us-east-1")
@@ -61,19 +59,36 @@ def populate():
              .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
              .getOrCreate())
 
-    print("[PROSES] Membaca data Star Schema dari Hadoop Catalog (Lokal)...")
-    dim_region = spark.table("local_hadoop.gold.dim_region")
-    fact_loans = spark.table("local_hadoop.gold.fact_loans")
+    print("[PROSES] Membaca data dari Lapisan Silver (Lokal)...")
+    loans_df = spark.table("local.silver.kiva_loans_cleaned")
+
+    print("[PROSES] Membangun Dimensi Region (Menambal NULL dengan 'UNKNOWN')...")
+    dim_region = loans_df.select("country", "region").fillna("UNKNOWN").distinct()
+    dim_region = dim_region.withColumn("region_id", monotonically_increasing_id())
+
+    print("[PROSES] Membangun Tabel Fakta (Menghindari Ambiguitas Join)...")
+    fact_loans_temp = loans_df.fillna({"region": "UNKNOWN"})
+    # Sintaks List ["country", "region"] memaksa Spark melebur kolom duplikat secara otomatis
+    fact_loans = fact_loans_temp.join(dim_region, ["country", "region"], "left")
+
+    print("[PROSES] Memilih kolom esensial analitik...")
+    fact_loans = fact_loans.select(
+        col("id").alias("loan_id"),
+        col("region_id"),
+        col("funded_amount").cast("double"),
+        col("sector"),
+        col("date")
+    )
 
     print("[PROSES] Membuat Namespace di JDBC Catalog (PostgreSQL)...")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS trino_cat.gold")
 
-    print("[PROSES] Menulis dan mengirimkan data ke S3 MinIO...")
+    print("[PROSES] Menulis Star Schema ke Apache Iceberg S3 (Gold)...")
     dim_region.writeTo("trino_cat.gold.dim_region").using("iceberg").createOrReplace()
     fact_loans.writeTo("trino_cat.gold.fact_loans").using("iceberg").createOrReplace()
 
-    print("Status: SUKSES. Data mendarat di MinIO dan terdaftar di PostgreSQL.\n")
+    print("Status: SUKSES. Eksekusi Lapisan Gold Selesai dan Mendarat di MinIO.\n")
     spark.stop()
 
 if __name__ == "__main__":
-    populate()
+    execute_enterprise_migration()
