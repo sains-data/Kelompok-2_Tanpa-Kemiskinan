@@ -18,4 +18,10 @@ GROUP BY region_id
 ORDER BY total_pendanaan DESC
 LIMIT 10;
 
-3. Hasil Komparasi EngineEngine AnalitikTipe PemrosesanStatus EksekusiWaktu Eksekusi (Latensi)Analisa SingkatDuckDBIn-MemorySelesai0.0674 detikMenunjukkan performa vektorisasi in-memory yang sangat cepat, dibantu oleh kondisi data yang sudah dibersihkan dari null values pada Lapisan Silver.TrinoDistributed JVM(Menunggu)[TBD]
+```
+## 3. Hasil Komparasi Engine
+
+| Engine Analitik | Tipe Pemrosesan | Status Eksekusi | Waktu Eksekusi (Latensi) | Analisa Singkat |
+| :--- | :--- | :--- | :--- | :--- |
+| **DuckDB** | In-Memory | Selesai | **0.0674 detik** | Performa vektorisasi in-memory sangat cepat, terbantu oleh pembersihan null values di Lapisan Silver. |
+| **Trino** | Distributed JVM | *(Menunggu)* | **[TBD]** | *(Akan diisi setelah konfigurasi server dan eksekusi kueri berhasil).* |
