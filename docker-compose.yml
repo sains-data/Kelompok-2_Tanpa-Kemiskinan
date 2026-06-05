@@ -1,0 +1,10 @@
+services:
+  postgres-catalog:
+    image: postgres:15-alpine
+    container_name: iceberg-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: iceberg_catalog
+    ports:
+      - "5432:5432"
