@@ -34,3 +34,13 @@ services:
     depends_on:
       - postgres-catalog
       - minio
+
+  superset:
+    build:
+      context: .
+      dockerfile: Dockerfile.superset
+    container_name: iceberg-superset
+    ports:
+      - "8088:8088"
+    environment:
+      - SUPERSET_SECRET_KEY=kiva_lakehouse_secret_key_2026

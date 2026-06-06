@@ -2,7 +2,7 @@ import os
 import sys
 import urllib.request
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, count
+from pyspark.sql.functions import monotonically_increasing_id, col
 
 # 1. OTOMATISASI PATH HADOOP (Standardisasi)
 dummy_hadoop_dir = os.path.join(os.getcwd(), ".hadoop_dummy")
@@ -20,37 +20,57 @@ os.environ["HADOOP_HOME"] = dummy_hadoop_dir
 os.environ["PATH"] += os.pathsep + bin_dir
 sys.path.append(bin_dir)
 
-def execute_silver(spark: SparkSession):
-    print("--- Memulai Eksekusi Lapisan Silver ---")
+def execute_gold(spark: SparkSession):
+    print("--- Memulai Eksekusi Lapisan Gold (Star Schema) ---")
     
-    # Membaca dari Bronze
-    print("[PROSES] Membaca data dari Lapisan Bronze...")
-    loans_df = spark.table("local.bronze.kiva_loans")
-    mpi_df = spark.table("local.bronze.kiva_mpi_region_locations")
+    print("[PROSES] Membaca data dari Lapisan Silver...")
+    loans_df = spark.table("local.silver.kiva_loans_cleaned")
     
-    # Implementasi Metrik Evaluasi: Drop Kolom > 80% Null secara Dinamis
-    print("[PROSES] Mengevaluasi dan membuang kolom dengan Null > 80%...")
-    total_rows = loans_df.count()
-    null_counts = loans_df.select([count(when(col(c).isNull(), c)).alias(c) for c in loans_df.columns]).collect()[0].asDict()
-    
-    cols_to_drop = [c for c, null_cnt in null_counts.items() if (null_cnt / total_rows) > 0.8]
-    if cols_to_drop:
-        print(f"[METRIK] Kolom yang di-drop karena Null > 80%: {cols_to_drop}")
-        loans_df = loans_df.drop(*cols_to_drop)
-    else:
-        print("[METRIK] Tidak ada kolom yang melebihi batas Null 80%.")
+    # 1. Membangun Dimensi Region
+    print("[PROSES] Membangun Dimensi Region...")
+    dim_region = loans_df.select("country", "region").distinct().dropna()
+    dim_region = dim_region.withColumn("region_id", monotonically_increasing_id())
 
-    # Membuat namespace dan menyimpan ke Silver
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS local.silver")
+    # 2. Membangun Dimensi Sector
+    print("[PROSES] Membangun Dimensi Sector...")
+    dim_sector = loans_df.select("sector").distinct().dropna()
+    dim_sector = dim_sector.withColumn("sector_id", monotonically_increasing_id())
+
+    # 3. Membangun Dimensi Partner
+    print("[PROSES] Membangun Dimensi Partner...")
+    # Kiva dataset menggunakan partner_id, kita pastikan kolomnya ada dan bersih
+    dim_partner = loans_df.select("partner_id").distinct().dropna()
+
+    # 4. Membangun Tabel Fakta Pinjaman
+    print("[PROSES] Membangun Tabel Fakta Pinjaman...")
+    # Menggabungkan data dengan ID dari tabel dimensi
+    fact_loans = loans_df.join(dim_region, ["country", "region"], "left") \
+                         .join(dim_sector, ["sector"], "left")
     
-    print("[PROSES] Menyimpan ke Apache Iceberg (Silver)...")
-    loans_df.writeTo("local.silver.kiva_loans_cleaned").using("iceberg").createOrReplace()
-    mpi_df.writeTo("local.silver.kiva_mpi_cleaned").using("iceberg").createOrReplace()
+    # Pilih kolom esensial untuk analitik (Pastikan Kunci Asing / Foreign Keys terhubung)
+    fact_loans = fact_loans.select(
+        col("id").alias("loan_id"),
+        col("region_id"),
+        col("sector_id"),
+        col("partner_id"),
+        col("funded_amount").cast("double"),
+        col("date")
+    )
     
-    print("Status: SUKSES. Eksekusi Lapisan Silver Selesai.\n")
+    # Membuat namespace
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS local.gold")
+    
+    # 5. Menyimpan Seluruh Tabel ke Iceberg
+    print("[PROSES] Menyimpan Dimensi dan Fakta ke Apache Iceberg (Gold)...")
+    dim_region.writeTo("local.gold.dim_region").using("iceberg").createOrReplace()
+    dim_sector.writeTo("local.gold.dim_sector").using("iceberg").createOrReplace()
+    dim_partner.writeTo("local.gold.dim_partner").using("iceberg").createOrReplace()
+    fact_loans.writeTo("local.gold.fact_loans").using("iceberg").createOrReplace()
+    
+    print("Status: SUKSES. 4 Tabel Lapisan Gold Selesai Dibangun.\n")
 
 if __name__ == "__main__":
-    spark = (SparkSession.builder.appName("Kiva_Silver_Layer")
+    spark = (SparkSession.builder.appName("Kiva_Gold_Layer")
              .master("local[*]")
              .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0")
              .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
@@ -58,5 +78,5 @@ if __name__ == "__main__":
              .config("spark.sql.catalog.local.type", "hadoop")
              .config("spark.sql.catalog.local.warehouse", "warehouse")
              .getOrCreate())
-    execute_silver(spark)
+    execute_gold(spark)
     spark.stop()
