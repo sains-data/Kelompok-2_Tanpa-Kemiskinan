@@ -75,20 +75,23 @@ erDiagram
 
 ## ⚙️ Persyaratan Sistem & Eksekusi
 
-Sistem ini dirancang untuk dijalankan dalam *Virtual Environment* secara terisolasi.
+Sistem ini dirancang dengan topologi *Hybrid*. Pemrosesan berat dilakukan di virtual environment Python, sedangkan lapisan penyimpanan akhir dan mesin kueri beroperasi di dalam **Docker Containers**.
 * **Inti Sistem:** Python 3.10+, PySpark 3.5.x, Apache Iceberg Runtime 3.5
+* **Infrastruktur Layanan:** Docker Desktop (MinIO S3, PostgreSQL, Trino)
 
-**Urutan Eksekusi Pipeline:**
+**Urutan Eksekusi Pipeline Mutlak:**
 ```bash
-# 1. Ekstraksi Data Mentah
+# 1. Nyalakan Infrastruktur Data Lakehouse (S3, Catalog, Trino)
+docker compose up -d
+
+# 2. Ekstraksi Data Mentah (Bronze Layer lokal)
 python src/bronze.py
 
-# 2. Eksekusi Pembersihan dan Imputasi Ganda
+# 3. Eksekusi Pembersihan dan Imputasi (Silver Layer lokal)
 python src/silver.py
 
-# 3. Transformasi ke Model Dimensional
-python src/gold.py
-
+# 4. Transformasi Star Schema & Migrasi ke S3 MinIO (Gold Layer)
+python src/populate_trino.py
 ```
 👥 Identitas Tim Pengembang
 Kelompok 2 - Program Studi Sains Data, Institut Teknologi Sumatera (ITERA)
