@@ -1,82 +1,80 @@
 import os
-import sys
-import urllib.request
+os.environ["AWS_REGION"] = "us-east-1"
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import monotonically_increasing_id, col
+from pyspark.sql.functions import col, mean
 
-# 1. OTOMATISASI PATH HADOOP (Standardisasi)
-dummy_hadoop_dir = os.path.join(os.getcwd(), ".hadoop_dummy")
-bin_dir = os.path.join(dummy_hadoop_dir, "bin")
-os.makedirs(bin_dir, exist_ok=True)
-winutils_path = os.path.join(bin_dir, "winutils.exe")
-hadoop_dll_path = os.path.join(bin_dir, "hadoop.dll")
+base_dir = os.getcwd().replace("\\", "/")
+hadoop_home = f"{base_dir}/.hadoop_dummy"
 
-if not os.path.exists(winutils_path):
-    urllib.request.urlretrieve("https://github.com/cdarlint/winutils/raw/master/hadoop-3.2.0/bin/winutils.exe", winutils_path)
-if not os.path.exists(hadoop_dll_path):
-    urllib.request.urlretrieve("https://github.com/cdarlint/winutils/raw/master/hadoop-3.2.0/bin/hadoop.dll", hadoop_dll_path)
-
-os.environ["HADOOP_HOME"] = dummy_hadoop_dir
-os.environ["PATH"] += os.pathsep + bin_dir
-sys.path.append(bin_dir)
-
-def execute_gold(spark: SparkSession):
-    print("--- Memulai Eksekusi Lapisan Gold (Star Schema) ---")
+def execute_silver(spark: SparkSession):
+    print("--- Memulai Eksekusi Lapisan Silver (Target: MinIO) ---")
+    loans_df = spark.table("local.bronze.kiva_loans")
+    mpi_df = spark.table("local.bronze.kiva_mpi_region_locations")
+    themes_df = spark.table("local.bronze.loan_themes_by_region")
     
-    print("[PROSES] Membaca data dari Lapisan Silver...")
-    loans_df = spark.table("local.silver.kiva_loans_cleaned")
+    print("\n[DQ GATE] Mengevaluasi Kualitas Data MPI...")
+    total_mpi_rows = mpi_df.count()
+    valid_mpi_rows = mpi_df.filter(col("MPI").isNotNull()).count()
+    dq_percentage = (valid_mpi_rows / total_mpi_rows) * 100 if total_mpi_rows > 0 else 0
     
-    # 1. Membangun Dimensi Region
-    print("[PROSES] Membangun Dimensi Region...")
-    dim_region = loans_df.select("country", "region").distinct().dropna()
-    dim_region = dim_region.withColumn("region_id", monotonically_increasing_id())
+    # OUTPUT METRIK KE TERMINAL
+    print(f"-> Total Data: {total_mpi_rows} baris")
+    print(f"-> Data Valid: {valid_mpi_rows} baris")
+    print(f"-> SKOR KUALITAS DATA AWAL: {dq_percentage:.2f}%")
+    
+    if dq_percentage >= 80.0:
+        print("-> [BRANCH A] Kualitas >= 80%. Lanjut ke tahap berikutnya tanpa intervensi manual.")
+        mpi_clean = mpi_df
+    else:
+        print("-> [BRANCH B] Kualitas < 80%. Memicu Skrip Auto-Review dan Imputasi Statistik...")
+        avg_mpi_row = mpi_df.select(mean(col("MPI"))).collect()[0][0]
+        avg_mpi = float(avg_mpi_row) if avg_mpi_row else 0.0
+        
+        print(f"   [Auto-Review] Nilai rata-rata MPI regional ({avg_mpi:.4f}) disuntikkan ke missing values...")
+        mpi_clean = mpi_df.na.fill({"MPI": avg_mpi})
+        
+        new_valid_rows = mpi_clean.filter(col("MPI").isNotNull()).count()
+        new_dq_percentage = (new_valid_rows / total_mpi_rows) * 100
+        print(f"-> SKOR KUALITAS PASCA-AUTO-REVIEW: {new_dq_percentage:.2f}%")
+        
+        if new_dq_percentage < 80.0:
+            raise Exception("GAGAL! Kualitas data tetap di bawah 80%.")
+        else:
+            print("-> [TERIMA] Kualitas sudah memenuhi syarat. Melanjutkan pipeline.")
 
-    # 2. Membangun Dimensi Sector
-    print("[PROSES] Membangun Dimensi Sector...")
-    dim_sector = loans_df.select("sector").distinct().dropna()
-    dim_sector = dim_sector.withColumn("sector_id", monotonically_increasing_id())
+    print("\n[DQ CHECK] Membersihkan Data Transaksi dan Sektoral...")
+    mpi_clean = mpi_clean.na.fill({"region": "Unknown", "country": "Unknown"})
+    loans_clean = loans_df.filter(col("funded_amount") > 0).na.fill({"country": "Unknown", "region": "Unknown", "sector": "Unknown", "partner_id": -1})
+    themes_clean = themes_df.na.fill({"sector": "Unknown", "region": "Unknown"})
 
-    # 3. Membangun Dimensi Partner
-    print("[PROSES] Membangun Dimensi Partner...")
-    # Kiva dataset menggunakan partner_id, kita pastikan kolomnya ada dan bersih
-    dim_partner = loans_df.select("partner_id").distinct().dropna()
-
-    # 4. Membangun Tabel Fakta Pinjaman
-    print("[PROSES] Membangun Tabel Fakta Pinjaman...")
-    # Menggabungkan data dengan ID dari tabel dimensi
-    fact_loans = loans_df.join(dim_region, ["country", "region"], "left") \
-                         .join(dim_sector, ["sector"], "left")
-    
-    # Pilih kolom esensial untuk analitik (Pastikan Kunci Asing / Foreign Keys terhubung)
-    fact_loans = fact_loans.select(
-        col("id").alias("loan_id"),
-        col("region_id"),
-        col("sector_id"),
-        col("partner_id"),
-        col("funded_amount").cast("double"),
-        col("date")
-    )
-    
-    # Membuat namespace
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS local.gold")
-    
-    # 5. Menyimpan Seluruh Tabel ke Iceberg
-    print("[PROSES] Menyimpan Dimensi dan Fakta ke Apache Iceberg (Gold)...")
-    dim_region.writeTo("local.gold.dim_region").using("iceberg").createOrReplace()
-    dim_sector.writeTo("local.gold.dim_sector").using("iceberg").createOrReplace()
-    dim_partner.writeTo("local.gold.dim_partner").using("iceberg").createOrReplace()
-    fact_loans.writeTo("local.gold.fact_loans").using("iceberg").createOrReplace()
-    
-    print("Status: SUKSES. 4 Tabel Lapisan Gold Selesai Dibangun.\n")
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS local.silver")
+    print("\n[PROSES] Menyimpan Tabel Bersih ke Iceberg (MinIO/S3)...")
+    loans_clean.writeTo("local.silver.kiva_loans_cleaned").using("iceberg").createOrReplace()
+    mpi_clean.writeTo("local.silver.kiva_mpi_cleaned").using("iceberg").createOrReplace()
+    themes_clean.writeTo("local.silver.loan_themes_cleaned").using("iceberg").createOrReplace()
+    print("Status: SUKSES (Silver).")
 
 if __name__ == "__main__":
-    spark = (SparkSession.builder.appName("Kiva_Gold_Layer")
+    spark = (SparkSession.builder.appName("Kiva_Silver_MinIO")
              .master("local[*]")
-             .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0")
+             .config("spark.jars.packages", "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0,org.postgresql:postgresql:42.6.0,org.apache.iceberg:iceberg-aws-bundle:1.5.0")
              .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
              .config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")
-             .config("spark.sql.catalog.local.type", "hadoop")
-             .config("spark.sql.catalog.local.warehouse", "warehouse")
+             .config("spark.sql.catalog.local.type", "jdbc")
+             .config("spark.sql.catalog.local.uri", "jdbc:postgresql://localhost:5432/iceberg_catalog")
+             .config("spark.sql.catalog.local.jdbc.user", "admin")
+             .config("spark.sql.catalog.local.jdbc.password", "password")
+             .config("spark.sql.catalog.local.warehouse", "s3a://warehouse/")
+             .config("spark.sql.catalog.local.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
+             .config("spark.sql.catalog.local.s3.endpoint", "http://localhost:9000")
+             .config("spark.sql.catalog.local.s3.access-key-id", "admin")
+             .config("spark.sql.catalog.local.s3.secret-access-key", "password")
+             .config("spark.sql.catalog.local.s3.path-style-access", "true")
+             .config("spark.driver.extraJavaOptions", f"-Dhadoop.home.dir={hadoop_home}")
+             .config("spark.executor.extraJavaOptions", f"-Dhadoop.home.dir={hadoop_home}")
+             .config("spark.sql.catalog.local.s3.region", "us-east-1")
+             .config("spark.hadoop.fs.s3a.signing-algorithm", "S3SignerType")
              .getOrCreate())
-    execute_gold(spark)
+    
+    execute_silver(spark)
     spark.stop()
