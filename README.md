@@ -96,12 +96,10 @@ python src/populate_trino.py
 👥 Identitas Tim Pengembang
 Kelompok 2 - Program Studi Sains Data, Institut Teknologi Sumatera (ITERA)
 
-Vania Claresta – Lead Data Engineer & Architect
+Vania Claresta – Lead Data Engineer, Architect, BI Analyst & Performance Evaluator (Trino vs DuckDB)
 
 Raihana Adelia Putri – Data Engineer (Bronze Layer)
 
 Ihsan Maulana Yusuf  – Data Engineer (Silver Layer & Data Quality)
 
 Fairuz Ary Syifa – Data Modeler (Gold Layer / Star Schema)
-
-Muhammad Hanif Faros  – BI Analyst & Performance Evaluator (Trino vs DuckDB)
