@@ -1,37 +1,43 @@
 import os
 os.environ["AWS_REGION"] = "us-east-1"
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import monotonically_increasing_id, col, coalesce, lit, sum, avg
+from pyspark.sql.functions import monotonically_increasing_id, col, coalesce, lit, sum, avg, lower, trim
 
 base_dir = os.getcwd().replace("\\", "/")
 hadoop_home = f"{base_dir}/.hadoop_dummy"
 
 def execute_gold(spark: SparkSession):
-    print("--- Memulai Eksekusi Lapisan Gold (Target: MinIO & Pemenuhan KPI) ---")
+    print("--- Memulai Eksekusi Lapisan Gold (Restorasi Tingkat Region Sesuai Proposal) ---")
     loans_clean = spark.table("local.silver.kiva_loans_cleaned")
     mpi_clean = spark.table("local.silver.kiva_mpi_cleaned")
     themes_clean = spark.table("local.silver.loan_themes_cleaned")
 
     # ====================================================================
-    # 1. STAR SCHEMA: DIMENSI
+    # 1. STAR SCHEMA: DIMENSI (Kembali ke Region)
     # ====================================================================
-    dim_region = mpi_clean.select("country", "region", col("MPI").alias("mpi")).distinct().withColumn("region_id", monotonically_increasing_id().cast("int"))
-    dim_sector = themes_clean.select("sector").distinct().withColumn("sector_id", monotonically_increasing_id().cast("int"))
-    dim_partner = loans_clean.select(col("partner_id").alias("kiva_partner_id")).distinct().withColumn("partner_id", monotonically_increasing_id().cast("int"))
+    dim_region = mpi_clean.select("country", "region", col("MPI").alias("mpi")).distinct() \
+                          .withColumn("region_id", monotonically_increasing_id().cast("int"))
+    
+    dim_sector = themes_clean.select("sector").distinct() \
+                             .withColumn("sector_id", monotonically_increasing_id().cast("int"))
+    
+    dim_partner = loans_clean.select(col("partner_id").alias("kiva_partner_id")).distinct() \
+                             .withColumn("partner_id", monotonically_increasing_id().cast("int"))
 
     # ====================================================================
-    # 2. STAR SCHEMA: FAKTA TRANSAKSIONAL (Terintegrasi dengan 5 KPI)
+    # 2. STAR SCHEMA: FAKTA TRANSAKSIONAL (Join dengan Sanitasi)
     # ====================================================================
     lc = loans_clean.alias("lc")
-    dp = dim_partner.alias("dp")
     dr = dim_region.alias("dr")
     ds = dim_sector.alias("ds")
+    dp = dim_partner.alias("dp")
     
-    fact_loans = lc.join(dr, (col("lc.country") == col("dr.country")) & (col("lc.region") == col("dr.region")), "left") \
-                   .join(ds, col("lc.sector") == col("ds.sector"), "left") \
+    # Mencocokkan Country DAN Region secara bersamaan dengan pembersihan string
+    fact_loans = lc.join(dr, (lower(trim(col("lc.country"))) == lower(trim(col("dr.country")))) & 
+                             (lower(trim(col("lc.region"))) == lower(trim(col("dr.region")))), "left") \
+                   .join(ds, lower(trim(col("lc.sector"))) == lower(trim(col("ds.sector"))), "left") \
                    .join(dp, col("lc.partner_id") == col("dp.kiva_partner_id"), "left")
     
-    # PERBAIKAN KRITIS: Memasukkan term_in_months (KPI 4) dan borrower_genders (KPI 5)
     fact_loans = fact_loans.select(
         col("lc.id").alias("loan_id"),
         coalesce(col("dr.region_id"), lit(-1)).alias("region_id"),
@@ -39,16 +45,17 @@ def execute_gold(spark: SparkSession):
         coalesce(col("dp.partner_id"), lit(-1)).alias("partner_id"),
         col("lc.funded_amount").cast("double"),
         col("lc.loan_amount").cast("double"),
-        col("lc.term_in_months").cast("int"),        # <- Memenuhi KPI Beban Tenor
-        col("lc.borrower_genders").cast("string"),   # <- Memenuhi KPI Kesetaraan Gender
+        col("lc.term_in_months").cast("int"),
+        col("lc.borrower_genders").cast("string"),
         col("lc.date")
     )
 
     # ====================================================================
-    # 3. TABEL AGREGASI (Memenuhi KPI 1 secara instan)
+    # 3. TABEL AGREGASI (Sesuai Proposal)
     # ====================================================================
-    print("[PROSES] Membangun Tabel Agregasi (GroupBy Region & Country)...")
-    agg_loans_region = lc.join(dr, (col("lc.country") == col("dr.country")) & (col("lc.region") == col("dr.region")), "inner") \
+    print("[PROSES] Membangun Tabel Agregasi (GroupBy Country & Region)...")
+    agg_loans_region = lc.join(dr, (lower(trim(col("lc.country"))) == lower(trim(col("dr.country")))) & 
+                                   (lower(trim(col("lc.region"))) == lower(trim(col("dr.region")))), "inner") \
                          .groupBy("dr.country", "dr.region") \
                          .agg(
                              sum("lc.funded_amount").alias("total_funded_amount"),
@@ -67,7 +74,7 @@ def execute_gold(spark: SparkSession):
     fact_loans.writeTo("local.gold.fact_loans").using("iceberg").createOrReplace()
     agg_loans_region.writeTo("local.gold.agg_loans_by_region").using("iceberg").createOrReplace()
     
-    print("Status: SUKSES. Data Warehouse Siap Divisualisasikan sesuai 5 KPI Dokumen.")
+    print("Status: SUKSES. Arsitektur telah dikembalikan sesuai proposal.")
 
 if __name__ == "__main__":
     spark = (SparkSession.builder.appName("Kiva_Gold_MinIO")
