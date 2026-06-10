@@ -30,39 +30,40 @@ Arsitektur data ini dibangun secara spesifik untuk menyuplai mesin kueri (Trino 
 ---
 
 ```mermaid
+%%{init: { 'theme': 'dark', 'themeVariables': { 'lineColor': '#F4B400', 'primaryColor': '#1E1E1E'}}}%%
 erDiagram
     fact_loans {
-        string loan_id PK
+        int loan_id PK
         int region_id FK
         int sector_id FK
         int partner_id FK
-        string kiva_partner_id
         double funded_amount
         double loan_amount
         int term_in_months
         string borrower_genders
+        string date
     }
-    
+
     dim_region {
         int region_id PK
         string country
         string region
-        double MPI
+        double mpi
     }
-    
+
+    dim_partner {
+        int partner_id PK
+        int kiva_partner_id
+    }
+
     dim_sector {
         int sector_id PK
         string sector
     }
-    
-    dim_partner {
-        int partner_id PK
-        string partner_name
-    }
 
-    fact_loans }o--|| dim_region : "memiliki lokasi"
-    fact_loans }o--|| dim_sector : "termasuk dalam"
-    fact_loans }o--|| dim_partner : "disalurkan oleh"
+    dim_region ||--o{ fact_loans : "merujuk"
+    dim_partner ||--o{ fact_loans : "mendanai"
+    dim_sector ||--o{ fact_loans : "mengelompokkan"
 ```
 ## ✨ Fitur Utama Arsitektur
 
